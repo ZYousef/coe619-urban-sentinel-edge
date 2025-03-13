@@ -22,7 +22,7 @@ def setup_logging():
         logger.removeHandler(handler)
 
     file_handler = RotatingFileHandler(
-        "accident_detector.log",
+        "/var/log/accident_detector.log",
         maxBytes=10485760,  # 10 MB
         backupCount=5
     )

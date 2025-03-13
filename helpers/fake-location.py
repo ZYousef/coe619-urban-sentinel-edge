@@ -2,52 +2,42 @@
 
 import csv
 import random
+import os
 import sys
 
-CSV_FILE = "valid_english_named_random_points_riyadh.csv"
+# Define paths
+APP_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))  # /app
+CSV_FILE = os.path.join(os.path.dirname(__file__), "valid_english_named_random_points_riyadh.csv")
+ENV_FILE = os.path.join(APP_DIR, ".env")
 
-def pick_valid_point(csv_file):
-    """Return one (name, lat, lon) from the CSV with place name > 6 chars."""
-    points = []
-    with open(csv_file, "r", encoding="utf-8") as f:
-        reader = csv.reader(f)
-        for row in reader:
-            # Expect [ID, POINT (lon lat), PlaceName]
-            if len(row) < 3:
-                continue
-            point_str = row[1].strip()
-            if not (point_str.startswith("POINT (") and point_str.endswith(")")):
-                continue
-            coords = point_str[7:-1].split()
-            if len(coords) != 2:
-                continue
-            try:
-                lon = float(coords[0])
-                lat = float(coords[1])
-            except ValueError:
-                continue
-            name = row[2].strip()
-            if len(name) > 6:
-                points.append((name, lat, lon))
-    if not points:
-        raise ValueError("No valid points found in CSV with place name length > 6.")
-    return random.choice(points)
+def pick_valid_point():
+    """Selects a valid location (name, lat, lon) from the CSV file."""
+    try:
+        with open(CSV_FILE, "r", encoding="utf-8") as f:
+            reader = csv.reader(f)
+            points = [
+                (row[2].strip(), float(row[1][7:-1].split()[1]), float(row[1][7:-1].split()[0]))
+                for row in reader if len(row) >= 3 and row[2].strip() and len(row[2].strip()) > 6
+                and row[1].startswith("POINT (") and row[1].endswith(")")
+            ] #pick sensible names.
+        return random.choice(points) if points else sys.exit("Error: No valid points found.")
+    except FileNotFoundError:
+        sys.exit(f"Error: CSV file not found at {CSV_FILE}")
+    except Exception as e:
+        sys.exit(f"Unexpected error: {e}")
+
+def save_env(env_vars):
+    """Saves environment variables to a .env file."""
+    try:
+        with open(ENV_FILE, "w") as f:
+            f.writelines(f"{k}={v}\n" for k, v in env_vars.items())
+        print(f"✅ Saved environment variables to {ENV_FILE}")
+    except Exception as e:
+        sys.exit(f"Error writing .env file: {e}")
 
 def main():
-    try:
-        name, lat, lon = pick_valid_point(CSV_FILE)
-        env_vars = {
-            "NODE_NAME": name,
-            "LATITUDE": str(lat),
-            "LONGITUDE": str(lon),
-        }
-        # Output environment variables in VAR=VALUE format
-        for var, val in env_vars.items():
-            val_escaped = val.replace('"', '\\"')
-            print(f'export {var}="{val_escaped}"')
-    except Exception as e:
-        print("Error:", e)
-        sys.exit(1)
+    name, lat, lon = pick_valid_point()
+    save_env({"NODE_NAME": name, "LATITUDE": lat, "LONGITUDE": lon})
 
 if __name__ == "__main__":
     main()

@@ -8,6 +8,7 @@ no config file is found.
 
 import os
 import configparser
+from dotenv import load_dotenv
 
 class Config:
     """
@@ -15,6 +16,7 @@ class Config:
     Provides convenient methods to parse integers, floats, booleans, etc.
     """
     def __init__(self, config_file="config.ini"):
+        load_dotenv()
         self.config = configparser.ConfigParser()
         self._set_defaults()
         if os.path.exists(config_file):
@@ -29,7 +31,7 @@ class Config:
         config file exists yet).
         """
         self.config["System"] = {
-            "ModelPath": "export.pkl",
+            "ModelPath": "helpers/export.pkl",
             "ModelUrl": "https://huggingface.co/spaces/arionganit/accident-detector/resolve/main/export.pkl",
             "StateFile": "state.pkl",
             "HeartbeatInterval": "60",
