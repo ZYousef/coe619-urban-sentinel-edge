@@ -16,14 +16,21 @@ class Config:
     Provides convenient methods to parse integers, floats, booleans, etc.
     """
     def __init__(self, config_file="config.ini"):
-        load_dotenv()
+        #Load .env from the project root
+        env_path = os.path.join(os.path.dirname(__file__), "..", ".env")
+        load_dotenv(dotenv_path=env_path)
+        self.config_file = config_file
         self.config = configparser.ConfigParser()
-        self._set_defaults()
+        
+        # Load existing config.ini first (if it exists)
         if os.path.exists(config_file):
             self.config.read(config_file)
-        else:
-            with open(config_file, 'w') as f:
-                self.config.write(f)
+        
+        # Then set defaults from .env, overriding any config.ini values
+        self._set_defaults()
+        
+        # Save the updated config to ensure config.ini reflects .env
+        self.save_config()
 
     def _set_defaults(self):
         """
@@ -62,7 +69,6 @@ class Config:
             "FPS": "10",
             "WarmupFrames": "5",
             "loop_video": "helpers/loop.mp4"
-            # "loop_video": "rtsp://localhost:9999/stream"
         }
         self.config["Detection"] = {
             "AccidentConfidenceThreshold": "0.7",
@@ -90,3 +96,15 @@ class Config:
     def getboolean(self, section, key, fallback=None):
         """Returns a boolean value from config, with optional fallback."""
         return self.config.getboolean(section, key, fallback=fallback)
+
+    def set(self, section, key, value):
+        """Sets a configuration value and updates the config file."""
+        if not self.config.has_section(section):
+            self.config.add_section(section)
+        self.config.set(section, key, value)
+        self.save_config()
+
+    def save_config(self):
+            """Saves the current state of the configuration to the config file."""
+            with open(self.config_file, 'w') as configfile:
+                self.config.write(configfile)

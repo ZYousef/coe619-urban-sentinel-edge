@@ -95,18 +95,19 @@ class AccidentDetectionSystem:
 
     def send_accident_event(self, buffer, frame=None):
         """
-        Sends an accident event (and image) to the remote API.
+        Sends an accident event (and image) to the remote API based on Postman specification.
         In debug mode, it shows the text overlay on the local frame window.
         """
         if self.debug:
             try:
                 image_base64 = base64.b64encode(buffer).decode('utf-8')
                 event_data = {
-                    "node_id": self.config.get("Node", "ID"),
-                    "accident": True,
-                    "category": "traffic",
-                    "eventdetails": "Detected an accident.",
-                    "timestamp": time.time(),
+                    "event_type": "car accident",
+                    "edge_node_id": self.config.get("Node", "ID"),
+                    "event_timestamp": str(int(time.time())),  # Stringified UNIX timestamp
+                    "event_status": "reported",
+                    "latitude": self.config.getfloat("Node", "Latitude"),
+                    "longitude": self.config.getfloat("Node", "Longitude"),
                     "image": image_base64
                 }
                 payload_size = len(event_data["image"]) / 1024
@@ -131,11 +132,12 @@ class AccidentDetectionSystem:
             try:
                 image_base64 = base64.b64encode(buffer).decode('utf-8')
                 event_data = {
-                    "node_id": self.config.get("Node", "ID"),
-                    "accident": True,
-                    "category": "traffic",
-                    "eventdetails": "Detected an accident.",
-                    "timestamp": time.time(),
+                    "event_type": "car accident",
+                    "edge_node_id": self.config.get("Node", "ID"),
+                    "event_timestamp": str(int(time.time())),  # Stringified UNIX timestamp
+                    "event_status": "reported",
+                    "latitude": self.config.getfloat("Node", "Latitude"),
+                    "longitude": self.config.getfloat("Node", "Longitude"),
                     "image": image_base64
                 }
                 if self.api_client.send_accident_event(event_data):

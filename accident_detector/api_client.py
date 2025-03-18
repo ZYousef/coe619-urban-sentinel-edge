@@ -21,6 +21,7 @@ class APIClient:
     """
     def __init__(self, config, debug=False):
         self.debug = debug
+        self.config = config  
         self.base_url = config.get("API", "BaseUrl")
         self.timeout = config.getint("API", "Timeout", 5)
         self.retry_attempts = config.getint("API", "RetryAttempts", 5)
@@ -42,18 +43,27 @@ class APIClient:
         self.heartbeat_url = f"{self.base_url}heartbeat"
 
     def register_node(self, node_info):
-        """Registers the node with the backend, or simulates in debug mode."""
+        """Registers the node with the backend and updates node_id from the registration response, and updates config with the new node_id."""
         if self.debug:
             logger.info(f"Debug Mode - Simulated API Call: POST {self.register_node_url} with data: {json.dumps(node_info)}")
-            return True
+            simulated_node_id = "simulated-node-id"
+            self.config.set('Node', 'ID', simulated_node_id)
+            return {"success": True, "node_id": simulated_node_id}
         try:
             response = self.session.post(self.register_node_url, json=node_info, timeout=self.timeout)
             response.raise_for_status()
-            logger.info("Node registered successfully")
-            return True
+            data = response.json()
+            node_id = data.get("node_id", None)
+            if node_id:
+                logger.info(f"Node registered successfully with node_id: {node_id}")
+                self.config.set('Node', 'ID', node_id)
+                return {"success": True, "node_id": node_id}
+            else:
+                logger.error("Node registration failed: node_id not found in the response")
+                return {"success": False, "node_id": None}
         except requests.exceptions.RequestException as e:
             logger.error(f"Node registration failed: {e}")
-            return False
+            return {"success": False, "node_id": None}
 
     def send_heartbeat(self, node_info):
         """Sends periodic heartbeats to indicate the node is alive."""
@@ -69,15 +79,23 @@ class APIClient:
             return False
 
     def send_accident_event(self, event_data):
-        """Reports an accident event, optionally with an image."""
+        """Reports an accident event with required fields and an optional image."""
+        headers = {"Content-Type": "application/json"}
         if self.debug:
-            payload_size = len(event_data["image"]) / 1024
+            # Safely handle missing image field
+            payload_size = len(event_data.get("image", "")) / 1024
             logger.info(f"Debug Mode - Simulated API Call: POST {self.accident_event_url} (size: {payload_size:.2f} KB)")
             return True
-        payload_size = len(event_data["image"]) / 1024
+        # Safely handle missing image field
+        payload_size = len(event_data.get("image", "")) / 1024
         logger.info(f"Sending accident report, size: {payload_size:.2f} KB")
         try:
-            response = self.session.post(self.accident_event_url, json=event_data, timeout=self.timeout)
+            response = self.session.post(
+                self.accident_event_url,
+                json=event_data,
+                headers=headers,
+                timeout=self.timeout
+            )
             response.raise_for_status()
             logger.info("Accident reported successfully")
             return True

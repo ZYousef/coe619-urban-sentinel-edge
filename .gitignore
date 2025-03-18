@@ -1,5 +1,7 @@
 .venv/
 accident_detector/__pycache__/
 helpers/loop.mp4
+*.pkl
 helpers/*.pkl
-config.ini
+*.ini
+*.log
