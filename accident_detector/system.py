@@ -108,7 +108,7 @@ class AccidentDetectionSystem:
                     "event_status": "reported",
                     "latitude": self.config.getfloat("Node", "Latitude"),
                     "longitude": self.config.getfloat("Node", "Longitude"),
-                    "image": image_base64
+                    "image": "/9j/4AAQSkZJRg..."
                 }
                 payload_size = len(event_data["image"]) / 1024
                 logger.info(
@@ -121,8 +121,9 @@ class AccidentDetectionSystem:
                     timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
                     cv2.putText(frame, f"Accident Detected - {timestamp}",
                                 (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
-                    cv2.imshow("Accident Detection Debug", frame)
-                    cv2.waitKey(1)
+                    # cv2.imshow("Accident Detection Debug", frame)
+                    # if cv2.waitKey(1) & 0xFF == ord('q'):
+                    #     sys.exit(0)
 
                 self.state.update_accident_time()
             except Exception as e:
@@ -249,8 +250,9 @@ class AccidentDetectionSystem:
                     color = (0, 255, 0) if prediction != "accident" else (0, 0, 255)
                     cv2.putText(display_frame, text, (10, 60),
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
-                    cv2.imshow("Accident Detection Debug", display_frame)
-                    cv2.waitKey(1)
+                    # cv2.imshow("Accident Detection Debug", display_frame)
+                    # if cv2.waitKey(1) & 0xFF == ord('q'):
+                    #     sys.exit(0)
 
                 # Check if prediction is "accident" above threshold
                 if prediction == "accident" and confidence > self.accident_confidence_threshold:
