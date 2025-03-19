@@ -46,7 +46,7 @@ class Config:
             "DebugMode": "False"
         }
         self.config["API"] = {
-            "BaseUrl": "https://may87uhma3.execute-api.me-south-1.amazonaws.com/prod/",
+            "BaseUrl": "https://363yhzi9sf.execute-api.me-south-1.amazonaws.com/prod/",
             "Timeout": "5",
             "RetryBackoffFactor": "1",
             "RetryAttempts": "5"

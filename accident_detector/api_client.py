@@ -38,8 +38,8 @@ class APIClient:
 
         # Endpoints
         self.register_node_url = f"{self.base_url}edge-node"
-        self.accident_event_url = f"{self.base_url}accident-event"
-        self.accident_check_url = f"{self.base_url}accident-status"
+        self.accident_event_url = f"{self.base_url}event"
+        self.accident_check_url = f"{self.base_url}event?event_id="
         self.heartbeat_url = f"{self.base_url}heartbeat"
 
     def register_node(self, node_info):
