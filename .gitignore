@@ -5,3 +5,4 @@ helpers/loop.mp4
 helpers/*.pkl
 *.ini
 *.log
+.env
