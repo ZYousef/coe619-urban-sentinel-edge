@@ -1,6 +1,6 @@
 opencv-python-headless
 requests
-numpy
+numpy<2.0.0
 fastai==2.7.12 
 fastcore==1.5.29
 Pillow
