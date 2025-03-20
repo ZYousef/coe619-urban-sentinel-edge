@@ -25,7 +25,7 @@ def main():
         run_script(script_path)
         
         # Run accident_detector.main as a module with --debug
-        run_script('accident_detector.main', '--debug', is_module=True)
+        run_script('accident_detector.main', is_module=True)
 
 if __name__ == "__main__":
     main()

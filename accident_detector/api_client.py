@@ -82,13 +82,9 @@ class APIClient:
         """Reports an accident event with required fields and an optional image."""
         headers = {"Content-Type": "application/json"}
         if self.debug:
-            # Safely handle missing image field
-            payload_size = len(event_data.get("image", "")) / 1024
-            logger.info(f"Debug Mode - Simulated API Call: POST {self.accident_event_url} (size: {payload_size:.2f} KB)")
-            return True
-        # Safely handle missing image field
-        payload_size = len(event_data.get("image", "")) / 1024
-        logger.info(f"Sending accident report, size: {payload_size:.2f} KB")
+            logger.info("Debug Mode - Simulated API Call: POST {self.accident_event_url}")
+            # Simulating an event_id generation in debug mode
+            return {"success": True, "event_id": "simulated-event-id"}
         try:
             response = self.session.post(
                 self.accident_event_url,
@@ -97,38 +93,54 @@ class APIClient:
                 timeout=self.timeout
             )
             response.raise_for_status()
-            logger.info("Accident reported successfully")
-            return True
+            data = response.json()
+            event_id = data.get("event_id", None)
+            if event_id:
+                logger.info(f"Accident reported successfully with event_id: {event_id}")
+                return {"success": True, "event_id": event_id}
+            else:
+                logger.error("Failed to obtain event_id from the response")
+                return {"success": False, "event_id": None}
         except requests.exceptions.RequestException as e:
             logger.error(f"Failed to send accident event: {e}")
-            return False
+            return {"success": False, "event_id": None}
 
-    def check_accident_resolved(self, check_interval=10, max_interval=60, backoff_factor=1.5, shutdown_event=None):
+
+    def check_accident_resolved(self, event_id):
         """
-        Polls the backend to see if the accident has been resolved.
-        Uses exponential backoff between requests, up to max_interval.
-        If 'shutdown_event' is set, exit early if signaled.
+        Polls the backend to see if the accident has been resolved based on event_id.
+        Adjusts system cooldown based on the status of the event.
         """
-        if self.debug:
-            logger.info(f"Debug Mode - Simulated API Call: GET {self.accident_check_url}")
-            return True
-        interval = check_interval
-        while True:
-            if shutdown_event and shutdown_event.is_set():
-                logger.info("Shutdown requested while waiting for accident resolution")
-                return False
+        # Interval for checking the accident status
+        check_interval = self.config.get('check_interval', 10)
+        max_checks = self.config.get('max_checks', 6)  # Max times to check before deciding
+        current_check = 0
+
+        while current_check < max_checks:
             try:
-                response = self.session.get(self.accident_check_url, timeout=self.timeout)
+                response = self.session.get(f"{self.config['accident_check_url']}{event_id}", timeout=self.config.get('timeout', 10))
                 response.raise_for_status()
                 data = response.json()
-                if data.get("resolved", False):
-                    logger.info("Accident marked as resolved by central system")
-                    return True
-            except requests.exceptions.RequestException as e:
-                logger.error(f"Failed to check accident status: {e}")
-            if shutdown_event:
-                if shutdown_event.wait(interval):
+                event_status = data.get("event_status", "unknown")
+
+                # Update the state with the latest status
+                self.state.update_accident_state(event_status=event_status)
+                
+                if event_status != "validated":
+                    logger.info(f"Event status is '{event_status}', skipping cooldown.")
                     return False
-            else:
-                time.sleep(interval)
-            interval = min(interval * backoff_factor, max_interval)
+                else:
+                    logger.info("Event status is validated. Respecting cooldown.")
+                    return True
+
+            except requests.exceptions.RequestException as e:
+                logger.error(f"Error while checking accident status: {e}")
+                return False
+
+            # Wait for the next interval
+            time.sleep(check_interval)
+            current_check += 1
+
+        logger.info("Max checks exceeded without validation.")
+        return False
+

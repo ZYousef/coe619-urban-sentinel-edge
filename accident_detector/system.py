@@ -48,7 +48,7 @@ class AccidentDetectionSystem:
         self.frame_queue_size = self.config.getint("Performance", "FrameQueueSize", 5)
         self.frame_capture_interval = 0.05 if self.debug else self.config.getfloat("Performance", "FrameCaptureInterval", 0.1)
         self.accident_cooldown = 10 if self.debug else self.config.getint("Performance", "AccidentCooldown", 1800)
-        self.heartbeat_interval = 99999 if self.debug else self.config.getint("System", "HeartbeatInterval", 60)
+        self.heartbeat_interval = 100 if self.debug else self.config.getint("System", "HeartbeatInterval", 60)
 
         self.accident_confidence_threshold = self.config.getfloat("Detection", "AccidentConfidenceThreshold", 0.7)
         self.required_consecutive_frames = self.config.getint("Detection", "RequiredConsecutiveFrames", 2)
@@ -86,8 +86,9 @@ class AccidentDetectionSystem:
         """
         logger.info("Starting heartbeat thread")
         while not self.shutdown_event.is_set():
-            node_info = self.get_node_info()
-            node_info["last_seen"] = time.time()
+            node_info = {
+            "node_id": self.config.get("Node", "ID"),
+        }
             self.api_client.send_heartbeat(node_info)
             if self.shutdown_event.wait(self.heartbeat_interval):
                 break
@@ -125,7 +126,7 @@ class AccidentDetectionSystem:
                     # if cv2.waitKey(1) & 0xFF == ord('q'):
                     #     sys.exit(0)
 
-                self.state.update_accident_time()
+                self.state.update_accident_state()
             except Exception as e:
                 logger.error(f"Debug mode display error: {e}")
         else:
@@ -142,7 +143,7 @@ class AccidentDetectionSystem:
                     "image": image_base64
                 }
                 if self.api_client.send_accident_event(event_data):
-                    self.state.update_accident_time()
+                    self.state.update_accident_state()
                     logger.info("Accident reported and state updated. Waiting for resolution...")
                     self.api_client.check_accident_resolved(shutdown_event=self.shutdown_event)
             except Exception as e:

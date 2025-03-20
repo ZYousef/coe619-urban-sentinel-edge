@@ -41,12 +41,12 @@ class Config:
             "ModelPath": "helpers/export.pkl",
             "ModelUrl": "https://huggingface.co/spaces/arionganit/accident-detector/resolve/main/export.pkl",
             "StateFile": "state.pkl",
-            "HeartbeatInterval": "60",
+            "HeartbeatInterval": "900",
             "ThreadPoolSize": "2",
             "DebugMode": "False"
         }
         self.config["API"] = {
-            "BaseUrl": "https://363yhzi9sf.execute-api.me-south-1.amazonaws.com/prod/",
+            "BaseUrl": "https://q1zx95ecqc.execute-api.me-south-1.amazonaws.com/prod/",
             "Timeout": "5",
             "RetryBackoffFactor": "1",
             "RetryAttempts": "5"
