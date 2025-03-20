@@ -66,12 +66,12 @@ class APIClient:
             return {"success": False, "node_id": None}
 
     def send_heartbeat(self, node_info):
-        """Sends periodic heartbeats to indicate the node is alive."""
+        """Sends periodic heartbeats to indicate the node is alive using PUT instead of POST."""
         if self.debug:
-            logger.info(f"Debug Mode - Simulated API Call: POST {self.heartbeat_url} with data: {json.dumps(node_info)}")
+            logger.info(f"Debug Mode - Simulated API Call: PUT {self.heartbeat_url} with data: {json.dumps(node_info)}")
             return True
         try:
-            response = self.session.post(self.heartbeat_url, json=node_info, timeout=self.timeout)
+            response = self.session.put(self.heartbeat_url, json=node_info, timeout=self.timeout)
             response.raise_for_status()
             return True
         except requests.exceptions.RequestException as e:
@@ -82,7 +82,7 @@ class APIClient:
         """Reports an accident event with required fields and an optional image."""
         headers = {"Content-Type": "application/json"}
         if self.debug:
-            logger.info("Debug Mode - Simulated API Call: POST {self.accident_event_url}")
+            logger.info(f"Debug Mode - Simulated API Call: POST {self.accident_event_url}")
             # Simulating an event_id generation in debug mode
             return {"success": True, "event_id": "simulated-event-id"}
         try:
@@ -105,42 +105,22 @@ class APIClient:
             logger.error(f"Failed to send accident event: {e}")
             return {"success": False, "event_id": None}
 
-
     def check_accident_resolved(self, event_id):
-        """
-        Polls the backend to see if the accident has been resolved based on event_id.
-        Adjusts system cooldown based on the status of the event.
-        """
-        # Interval for checking the accident status
-        check_interval = self.config.get('check_interval', 10)
-        max_checks = self.config.get('max_checks', 6)  # Max times to check before deciding
-        current_check = 0
+            """
+            Queries the backend once to check if the accident is resolved based on event_id.
+            Returns True if validated, False otherwise.
+            """
+            if not event_id:
+                logger.error("No event_id provided to check accident resolution")
+                return False
 
-        while current_check < max_checks:
             try:
-                response = self.session.get(f"{self.config['accident_check_url']}{event_id}", timeout=self.config.get('timeout', 10))
+                response = self.session.get(f"{self.accident_check_url}{event_id}", timeout=self.config.getint('API', 'Timeout', 10))
                 response.raise_for_status()
                 data = response.json()
                 event_status = data.get("event_status", "unknown")
-
-                # Update the state with the latest status
-                self.state.update_accident_state(event_status=event_status)
-                
-                if event_status != "validated":
-                    logger.info(f"Event status is '{event_status}', skipping cooldown.")
-                    return False
-                else:
-                    logger.info("Event status is validated. Respecting cooldown.")
-                    return True
-
+                logger.info(f"Checked accident status for event_id {event_id}: '{event_status}'")
+                return event_status == "validated"
             except requests.exceptions.RequestException as e:
                 logger.error(f"Error while checking accident status: {e}")
                 return False
-
-            # Wait for the next interval
-            time.sleep(check_interval)
-            current_check += 1
-
-        logger.info("Max checks exceeded without validation.")
-        return False
-
