@@ -1,7 +1,8 @@
 opencv-python-headless
 requests
 numpy
-fastai
+fastai==2.7.12 
+fastcore==1.5.29
 Pillow
 pytubefix
 python-dotenv
