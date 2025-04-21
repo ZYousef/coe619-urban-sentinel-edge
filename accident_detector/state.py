@@ -4,71 +4,124 @@ state.py
 Defines the SystemState class, which is responsible for persisting and
 loading application state between runs (e.g., last accident timestamps).
 """
-
 import os
 import time
 import pickle
 import threading
 import logging
+from enum import Enum
+from typing import Optional, Dict, Any
 
 logger = logging.getLogger("accident_detector")
 
+class Status(Enum):
+    """
+    Possible statuses for an accident event.
+    """
+    REPORTED = "reported"
+    VALIDATED = "validated"
+    INVALID = "invalid"
+    UNKNOWN = "unknown"
+
 class SystemState:
     """
-    Maintains and persists the system's state (e.g., the last time an
-    accident was reported). Uses a pickled file for persistence.
+    Manages persistent system state across runs:
+      - Last event_id
+      - Whether an accident is unresolved
+      - Timestamp of the last validation/invalid action (for cooldown)
     """
-    def __init__(self, state_file):
-        self.state_file = state_file
+    def __init__(self, state_file: str):
         self._lock = threading.Lock()
-        self.last_accident_time = 0
-        self.event_id = None
-        self.event_status = None
-        self.load()
+        self.state_file = state_file
 
-    def load(self):
-        """Loads state from disk if it exists; otherwise initializes defaults."""
-        if os.path.exists(self.state_file):
+        # Default in-memory state
+        self.event_id: Optional[str] = None
+        self.unresolved: bool = False
+        self.last_accident_time: Optional[float] = None
+
+        # Load from disk if available
+        self._load_state()
+
+    def _load_state(self) -> None:
+        """Load persisted state from disk."""
+        with self._lock:
+            if not os.path.exists(self.state_file):
+                return
             try:
                 with open(self.state_file, "rb") as f:
-                    state = pickle.load(f)
-                self.last_accident_time = state.get("last_accident_time", 0)
-                self.event_id = state.get("event_id", None)
-                self.event_status = state.get("event_status", None)
+                    data: Dict[str, Any] = pickle.load(f)
+                self.event_id = data.get("event_id")
+                self.unresolved = data.get("unresolved", False)
+                self.last_accident_time = data.get("last_accident_time")
             except Exception as e:
-                self.reset_state()
+                logger.error(f"Failed loading system state: {e}", exc_info=True)
 
-    def reset_state(self):
-        """Resets the system's state to default values."""
+    def _save_state(self) -> None:
+        """Persist current state to disk."""
         with self._lock:
-            self.last_accident_time = 0
-            self.event_id = None
-            self.event_status = None
-        self.save()
-
-    def save(self):
-        """Saves the current state to disk."""
-        with self._lock:
-            state_data = {
-                "last_accident_time": self.last_accident_time,
+            data: Dict[str, Any] = {
                 "event_id": self.event_id,
-                "event_status": self.event_status
+                "unresolved": self.unresolved,
+                "last_accident_time": self.last_accident_time,
             }
-        with open(self.state_file, "wb") as f:
-            pickle.dump(state_data, f)
+            try:
+                os.makedirs(os.path.dirname(self.state_file), exist_ok=True)
+                with open(self.state_file, "wb") as f:
+                    pickle.dump(data, f)
+            except Exception as e:
+                logger.error(f"Failed saving system state: {e}", exc_info=True)
 
-    def update_accident_state(self, timestamp=None, event_id=None, event_status=None):
-        """Updates the accident-related state and saves it."""
+    def mark_reported(self, event_id: str) -> None:
+        """
+        Called when an event is first reported.
+        Marks it unresolved and stores the event_id.
+        """
         with self._lock:
-            self.last_accident_time = timestamp or time.time()
             self.event_id = event_id
-            self.event_status = event_status
-        self.save()
+            self.unresolved = True
+            # last_accident_time set only on validation or invalid
+            self._save_state()
 
-    def is_in_cooldown(self, cooldown_period):
-        """Checks if the system is within the cooldown period."""
+    def mark_validated(self) -> None:
+        """
+        Called when an event becomes validated.
+        Starts the cooldown period from now.
+        """
         with self._lock:
-            if self.event_status != "validated":
-                logger.info("Skipping cooldown due to non-validated event status.")
+            self.last_accident_time = time.time()
+            # still unresolved until cleared
+            self._save_state()
+
+    def mark_invalid(self) -> None:
+        """
+        Called when an event is deemed invalid.
+        Ends the unresolved state immediately and starts cooldown.
+        """
+        with self._lock:
+            self.last_accident_time = time.time()
+            self.unresolved = False
+            self._save_state()
+
+    def clear_unresolved(self) -> None:
+        """
+        Clears the unresolved flag (called after cooldown completes or on shutdown).
+        """
+        with self._lock:
+            self.unresolved = False
+            self._save_state()
+
+    def is_unresolved(self) -> bool:
+        """
+        Returns True if an accident is currently unresolved.
+        """
+        with self._lock:
+            return self.unresolved
+
+    def is_in_cooldown(self, cooldown: int) -> bool:
+        """
+        Returns True if still within the cooldown period since last validation/invalid action.
+        """
+        with self._lock:
+            if self.last_accident_time is None:
                 return False
-            return time.time() - self.last_accident_time < cooldown_period
+            return (time.time() - self.last_accident_time) < cooldown
