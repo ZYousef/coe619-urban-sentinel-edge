@@ -8,7 +8,7 @@ from the camera or a looping video source.
 import cv2
 import time
 import logging
-
+import random
 logger = logging.getLogger("accident_detector")
 
 class CameraManager:
@@ -38,6 +38,13 @@ class CameraManager:
             if not self.cap.isOpened():
                 logger.error("Could not open video stream")
                 return False
+            
+            total_frames = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT))
+            if total_frames > self.warmup_frames:
+                start_frame = random.randint(0, total_frames - self.warmup_frames - 1)
+                self.cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
+                logger.info(f"Starting video from frame: {start_frame}")
+
             logger.info("Warming up camera...")
             for _ in range(self.warmup_frames):
                 self.cap.read()
