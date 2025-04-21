@@ -290,17 +290,14 @@ class AccidentDetectionSystem:
                 self.shutdown_event.wait(self.perf.reported_check_interval)
                 continue
             if status == Status.VALIDATED:
-                if start_validated is None:
-                    start_validated = time.time()
-                    self.state.mark_validated()
-                elapsed = time.time() - start_validated
-                if elapsed >= self.perf.accident_cooldown:
-                    logger.info("Post-validation cooldown complete; setting node status to online.")
-                    self.api_client.update_node_status("online")
-                    self.state.clear_unresolved()
-                    break
-                self.shutdown_event.wait(min(60, self.perf.accident_cooldown - int(elapsed)))
-                continue
+                self.state.mark_validated()
+                # now block here while state.is_in_cooldown remains True
+                while self.state.is_in_cooldown(self.perf.accident_cooldown):
+                    self.shutdown_event.wait(min(60, self.perf.accident_cooldown))
+                # as soon as that returns False, we know the cooldown elapsed
+                self.api_client.update_node_status("online")
+                self.state.clear_unresolved()
+                break
             if status == Status.INVALID:
                 self.state.mark_invalid()
                 break

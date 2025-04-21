@@ -1,8 +1,8 @@
 """
 state.py
 
-Defines the SystemState class, which is responsible for persisting and
-loading application state between runs (e.g., last accident timestamps).
+Manages persistent system state across runs, including accident events,
+cooldown timers, and resolution flags.
 """
 import os
 import time
@@ -10,14 +10,11 @@ import pickle
 import threading
 import logging
 from enum import Enum
-from typing import Optional, Dict, Any
+from typing import Optional
 
 logger = logging.getLogger("accident_detector")
 
 class Status(Enum):
-    """
-    Possible statuses for an accident event.
-    """
     REPORTED = "reported"
     VALIDATED = "validated"
     INVALID = "invalid"
@@ -25,103 +22,116 @@ class Status(Enum):
 
 class SystemState:
     """
-    Manages persistent system state across runs:
-      - Last event_id
-      - Whether an accident is unresolved
-      - Timestamp of the last validation/invalid action (for cooldown)
+    Thread-safe storage of system state persisted to disk.
+
+    Tracks:
+    - last_event_id
+    - event_status
+    - timestamp of last status change
+    - unresolved flag
     """
-    def __init__(self, state_file: str):
+    def __init__(self, filepath: str) -> None:
+        self.filepath = filepath
         self._lock = threading.Lock()
-        self.state_file = state_file
 
-        # Default in-memory state
-        self.event_id: Optional[str] = None
+        # Default state
+        self.last_event_id: Optional[str] = None
+        self.event_status: Status = Status.UNKNOWN
+        self.last_timestamp: float = 0.0
         self.unresolved: bool = False
-        self.last_accident_time: Optional[float] = None
 
-        # Load from disk if available
-        self._load_state()
+        # Attempt to load existing state
+        self._load()
 
-    def _load_state(self) -> None:
-        """Load persisted state from disk."""
-        with self._lock:
-            if not os.path.exists(self.state_file):
-                return
-            try:
-                with open(self.state_file, "rb") as f:
-                    data: Dict[str, Any] = pickle.load(f)
-                self.event_id = data.get("event_id")
-                self.unresolved = data.get("unresolved", False)
-                self.last_accident_time = data.get("last_accident_time")
-            except Exception as e:
-                logger.error(f"Failed loading system state: {e}", exc_info=True)
+    def _load(self) -> None:
+        """Loads state from file if it exists."""
+        if not os.path.exists(self.filepath):
+            return
+        try:
+            with open(self.filepath, 'rb') as f:
+                data = pickle.load(f)
+            with self._lock:
+                self.last_event_id = data.get('last_event_id')
+                self.event_status = Status(data.get('event_status', Status.UNKNOWN.value))
+                self.last_timestamp = data.get('last_timestamp', 0.0)
+                self.unresolved = data.get('unresolved', False)
+            logger.info(f"Loaded state from {self.filepath}")
+        except Exception as e:
+            logger.error(f"Failed to load state: {e}", exc_info=True)
 
-    def _save_state(self) -> None:
-        """Persist current state to disk."""
-        with self._lock:
-            data: Dict[str, Any] = {
-                "event_id": self.event_id,
-                "unresolved": self.unresolved,
-                "last_accident_time": self.last_accident_time,
-            }
-            try:
-                os.makedirs(os.path.dirname(self.state_file), exist_ok=True)
-                with open(self.state_file, "wb") as f:
-                    pickle.dump(data, f)
-            except Exception as e:
-                logger.error(f"Failed saving system state: {e}", exc_info=True)
+    def _save(self) -> None:
+        """Saves state to file."""
+        try:
+            os.makedirs(os.path.dirname(self.filepath) or '.', exist_ok=True)
+            with open(self.filepath, 'wb') as f:
+                data = {
+                    'last_event_id': self.last_event_id,
+                    'event_status': self.event_status.value,
+                    'last_timestamp': self.last_timestamp,
+                    'unresolved': self.unresolved
+                }
+                pickle.dump(data, f)
+            logger.debug(f"State saved to {self.filepath}")
+        except Exception as e:
+            logger.error(f"Failed to save state: {e}", exc_info=True)
 
     def mark_reported(self, event_id: str) -> None:
-        """
-        Called when an event is first reported.
-        Marks it unresolved and stores the event_id.
-        """
+        """Marks a new accident event as reported (unresolved)."""
         with self._lock:
-            self.event_id = event_id
+            self.last_event_id = event_id
+            self.event_status = Status.REPORTED
+            self.last_timestamp = time.time()
             self.unresolved = True
-            # last_accident_time set only on validation or invalid
-            self._save_state()
+        self._save()
+        logger.info(f"State updated: reported {event_id}")
 
     def mark_validated(self) -> None:
-        """
-        Called when an event becomes validated.
-        Starts the cooldown period from now.
-        """
+        """Marks the current event as validated."""
         with self._lock:
-            self.last_accident_time = time.time()
-            # still unresolved until cleared
-            self._save_state()
+            self.event_status = Status.VALIDATED
+            self.last_timestamp = time.time()
+        self._save()
+        logger.info("State updated: validated")
 
     def mark_invalid(self) -> None:
-        """
-        Called when an event is deemed invalid.
-        Ends the unresolved state immediately and starts cooldown.
-        """
+        """Marks the current event as invalid and resolves it."""
         with self._lock:
-            self.last_accident_time = time.time()
+            self.event_status = Status.INVALID
+            self.last_timestamp = time.time()
             self.unresolved = False
-            self._save_state()
+        self._save()
+        logger.info("State updated: invalid (resolved)")
 
     def clear_unresolved(self) -> None:
-        """
-        Clears the unresolved flag (called after cooldown completes or on shutdown).
-        """
+        """Clears the unresolved flag after resolution."""
         with self._lock:
             self.unresolved = False
-            self._save_state()
+        self._save()
+        logger.info("State updated: cleared unresolved flag")
 
     def is_unresolved(self) -> bool:
-        """
-        Returns True if an accident is currently unresolved.
-        """
+        """Returns True if there's an unresolved accident event."""
         with self._lock:
             return self.unresolved
 
-    def is_in_cooldown(self, cooldown: int) -> bool:
+    def is_in_cooldown(self, cooldown: float) -> bool:
         """
-        Returns True if still within the cooldown period since last validation/invalid action.
+        Checks if we are within the post-validation cooldown period.
+        Returns True if last status was VALIDATED and (now - last_timestamp) < cooldown
         """
         with self._lock:
-            if self.last_accident_time is None:
-                return False
-            return (time.time() - self.last_accident_time) < cooldown
+            return (
+                self.event_status == Status.VALIDATED and
+                (time.time() - self.last_timestamp) < cooldown
+            )
+
+    def has_cooldown_elapsed(self, cooldown: float) -> bool:
+        """
+        Checks if the post-validation cooldown has elapsed.
+        Returns True if last status was VALIDATED and (now - last_timestamp) >= cooldown
+        """
+        with self._lock:
+            return (
+                self.event_status == Status.VALIDATED and
+                (time.time() - self.last_timestamp) >= cooldown
+            )

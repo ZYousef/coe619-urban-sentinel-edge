@@ -6,6 +6,7 @@ Encapsulates all HTTP communication with the backend:
 - Heartbeats
 - Accident event reporting
 - Accident status polling
+- Node status updates
 """
 import json
 import logging
@@ -134,8 +135,10 @@ class APIClient:
         Report an accident event. Returns a dict indicating success and event_id.
         """
         if self.debug:
+            eid = "simulated-event-id"
+            # record when we “reported” this event
             logger.info(f"[DEBUG] send_accident_event -> {self.event_url}: {event_data}")
-            return {"success": True, "event_id": "simulated-event-id"}
+            return {"success": True, "event_id": eid}
 
         headers = {"Content-Type": "application/json"}
         try:
@@ -163,8 +166,7 @@ class APIClient:
         Returns one of: 'reported', 'validated', 'invalid', or 'unknown'.
         """
         if self.debug:
-            logger.info(f"[DEBUG] check_accident_status -> {self.status_url}{event_id}")
-            return "reported"
+            return "validated"
 
         try:
             resp = self.session.get(
