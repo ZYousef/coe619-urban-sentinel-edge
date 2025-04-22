@@ -122,11 +122,11 @@ class SystemState:
     def mark_resolved(self) -> None:
         """Marks the current event as resolved."""
         with self._lock:
-            self.event_status = Status.RESOLVED
+            self.event_status   = Status.RESOLVED
             self.last_timestamp = time.time()
-            self.unresolved = False
+            self.unresolved     = False
         self._save()
-        logger.info("State updated: invalid (resolved)")
+        logger.info("State updated: resolved")
 
     def clear_unresolved(self) -> None:
         """Clears the unresolved flag after resolution."""

@@ -295,68 +295,76 @@ class AccidentDetectionSystem:
 
     def _poll_event_status(self, event_id: str) -> None:
         """
-        Polls the API for event status and handles transitions,
-        including ongoing polling during the post‑validation cooldown.
+        Polls the API for event status and handles:
+          1) initial REPORT → wait for VALIDATED / INVALID / RESOLVED
+          2) if VALIDATED, enter cooldown loop (re‑polling)
+          3) on INVALID or RESOLVED at any time, mark and bring node online
+          4) if cooldown elapses with no invalidation, auto‑resolve remotely
         """
-        # PHASE 1: Wait for the first transition out of REPORTED
+        # ---- phase 1: wait for VALIDATED / INVALID / RESOLVED ----
         while not self.shutdown_event.is_set():
             status_str = self.api_client.check_accident_status(event_id)
             logger.info(f"Event {event_id} status: {status_str}")
 
             if status_str == Status.REPORTED.value:
-                # Still waiting to be validated/invalidated/resolved
                 self.shutdown_event.wait(self.perf.reported_check_interval)
                 continue
 
             if status_str == Status.INVALID.value:
+                # immediate resolution
                 self.state.mark_invalid()
+                self.api_client.update_node_status("online")
+                return
+
+            if status_str == Status.RESOLVED.value:
+                # someone already marked it resolved
+                self.state.mark_resolved()
+                self.api_client.update_node_status("online")
                 return
 
             if status_str == Status.VALIDATED.value:
+                # move into cooldown phase
                 self.state.mark_validated()
                 break
 
-            if status_str == Status.RESOLVED.value:
-                self.state.mark_resolved()
-                break
-
-            # Unexpected or unknown
+            # unknown / error → retry
             logger.error(f"Unexpected status '{status_str}'")
             self.shutdown_event.wait(self.perf.reported_check_interval)
 
-        # PHASE 2: Cooldown window with live re‑polling
+        # ---- phase 2: cooldown + re‑poll loop ----
         cooldown = self.perf.accident_cooldown
-        start_time = time.time()
+        start    = time.time()
+
         while not self.shutdown_event.is_set():
-            elapsed = time.time() - start_time
+            elapsed = time.time() - start
             if elapsed >= cooldown:
-                # Done waiting
+                # cooldown expired without invalidation → auto-resolve
                 break
 
+            # re‑poll remote status in the meantime
             status_str = self.api_client.check_accident_status(event_id)
             logger.info(f"[Cooldown] Event {event_id} status: {status_str}")
 
             if status_str == Status.INVALID.value:
-                # Invalidated during cooldown → resolve immediately
                 self.state.mark_invalid()
+                self.api_client.update_node_status("online")
                 return
 
             if status_str == Status.RESOLVED.value:
-                # Already resolved by external system → clear and exit
                 self.state.mark_resolved()
-                self.state.clear_unresolved()
+                self.api_client.update_node_status("online")
                 return
 
+            # still validated (or some other transition) → keep waiting
             if status_str != Status.VALIDATED.value:
-                # Flipped back to reported or unknown → bail out
                 logger.warning(f"Status changed to '{status_str}' during cooldown")
-                self.state.clear_unresolved()
-                return
 
-            # Still in cooldown & still validated
             self.shutdown_event.wait(self.perf.reported_check_interval)
 
-        # PHASE 3: Cooldown complete without invalidation → auto‑resolve
-        logger.info("Post‑validation cooldown complete; setting node status to online.")
+        # ---- phase 3: cooldown elapsed → auto‑resolve remotely & locally ----
+        # 1) tell backend we're resolved
+        self.api_client.update_event_status(event_id, Status.RESOLVED.value)
+        # 2) update our local state
+        self.state.mark_resolved()
+        # 3) bring ourselves back online
         self.api_client.update_node_status("online")
-        self.state.clear_unresolved()

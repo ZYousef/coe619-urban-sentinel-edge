@@ -112,10 +112,16 @@ class APIClient:
     def update_node_status(self, status: str) -> bool:
         """
         Update this node’s status (e.g. 'online', 'offline', etc.)
-        by POSTing to the edge-node endpoint.
+        by POSTing to the edge-node endpoint with the full node info.
         """
-        node_id = self.config.get("Node", "ID")
-        payload = {"node_id": node_id, "node_status": status}
+        # start from your full registration payload
+        payload = {
+            "node_id":   self.config.get("Node", "ID"),
+            "node_name": self.config.get("Node", "Name"),
+            "latitude":  self.config.getfloat("Node", "Latitude"),
+            "longitude": self.config.getfloat("Node", "Longitude"),
+            "node_status": status
+        }
 
         if self.debug:
             logger.info(f"[DEBUG] update_node_status -> {self.register_url}: {payload}")
@@ -128,8 +134,9 @@ class APIClient:
                 timeout=self.timeout
             )
             resp.raise_for_status()
-            logger.info(f"Node status updated to '{status}' for node_id={node_id}")
+            logger.info(f"Node status updated to '{status}' for node_id={payload['node_id']}")
             return True
+
         except requests.RequestException as e:
             logger.error(f"update_node_status failed: {e}")
             return False
@@ -203,3 +210,35 @@ class APIClient:
         except (requests.RequestException, json.JSONDecodeError) as e:
             logger.error(f"check_accident_status failed: {e}")
             return "unknown"
+        
+    def update_event_status(self, event_id: str, status: str) -> bool:
+        """
+        Update an existing event’s status by PUTting to /event.
+        """
+        payload = {
+            "event_id": event_id,
+            "event_status": status
+        }
+
+        if self.debug:
+            logger.info(f"[DEBUG] update_event_status -> {self.event_url}: {payload}")
+            return True
+
+        try:
+            resp = self.session.put(
+                self.event_url,
+                json=payload,
+                timeout=self.timeout
+            )
+            resp.raise_for_status()
+            logger.info(f"Event status updated to '{status}' for event_id={event_id}")
+            return True
+
+        except requests.RequestException as e:
+            # Try to capture response body for debugging
+            body = resp.text if 'resp' in locals() else None
+            logger.error(
+                f"update_event_status failed: {e}"
+                + (f" — response body: {body!r}" if body else "")
+            )
+            return False
