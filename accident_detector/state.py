@@ -55,7 +55,12 @@ class SystemState:
                 self.event_status = Status(data.get('event_status', Status.UNKNOWN.value))
                 self.last_timestamp = data.get('last_timestamp', 0.0)
                 self.unresolved = data.get('unresolved', False)
-            logger.info(f"Loaded state from {self.filepath}")
+                logger.info(
+                f"Loaded state from {self.filepath}: "
+                f"last_event_id={self.last_event_id}, "
+                f"unresolved={self.unresolved}, "
+                f"last_timestamp={self.last_timestamp}"
+                )
         except Exception as e:
             logger.error(f"Failed to load state: {e}", exc_info=True)
 

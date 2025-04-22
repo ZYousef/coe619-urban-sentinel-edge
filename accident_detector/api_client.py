@@ -4,12 +4,14 @@ api_client.py
 Encapsulates all HTTP communication with the backend:
 - Node registration
 - Heartbeats
-- Accident event reporting
+- Accident event reporting (base64-encoded images)
 - Accident status polling
 - Node status updates
 """
 import json
 import logging
+import base64
+import time
 from typing import Any, Dict, Optional, TypedDict
 
 import requests
@@ -41,8 +43,11 @@ class APIClient:
         # Prepare Session with retries
         retries = Retry(
             total=self.config.getint("API", "RetryAttempts"),
+            read=self.config.getint("API", "RetryAttempts"),
             backoff_factor=self.config.getfloat("API", "RetryBackoffFactor"),
-            status_forcelist=[500, 502, 503, 504]
+            status_forcelist=[500, 502, 503, 504],
+            raise_on_status=False,
+            respect_retry_after_header=True,
         )
         self.session = requests.Session()
         adapter = HTTPAdapter(max_retries=retries)
@@ -125,26 +130,36 @@ class APIClient:
             resp.raise_for_status()
             logger.info(f"Node status updated to '{status}' for node_id={node_id}")
             return True
-
         except requests.RequestException as e:
             logger.error(f"update_node_status failed: {e}")
             return False
     
     def send_accident_event(self, event_data: Dict[str, Any]) -> SendEventResponse:
         """
-        Report an accident event. Returns a dict indicating success and event_id.
+        Report an accident event. Builds a full payload including node metadata and base64-encoded image,
+        logs backend error bodies on HTTP 4xx/5xx, and returns success/event_id.
         """
-        if self.debug:
-            eid = "simulated-event-id"
-            # record when we “reported” this event
-            logger.info(f"[DEBUG] send_accident_event -> {self.event_url}: {event_data}")
-            return {"success": True, "event_id": eid}
+        # Always include node info and timestamp
+        payload: Dict[str, Any] = {
+            "node_id": self.config.get("Node", "ID"),
+            "latitude": float(self.config.get("Node", "Latitude")),
+            "longitude": float(self.config.get("Node", "Longitude")),
+            "event_timestamp": int(time.time()),
+            "event_type": "accident",
+            "event_status": "reported",
+        }
+        img = event_data.get("image")
+        if isinstance(img, (bytes, bytearray)):
+            payload["image"] = base64.b64encode(img).decode('ascii')
+        else:
+            logger.error("send_accident_event: missing image bytes in event_data")
+            return {"success": False, "event_id": None}
 
         headers = {"Content-Type": "application/json"}
         try:
             resp = self.session.post(
                 self.event_url,
-                json=event_data,
+                json=payload,
                 headers=headers,
                 timeout=self.timeout
             )
@@ -154,6 +169,15 @@ class APIClient:
             if not eid:
                 logger.error("send_accident_event: 'event_id' missing in response")
                 return {"success": False, "event_id": None}
+            logger.info(f"Accident event sent (event_id={eid})")
+            return {"success": True, "event_id": eid}
+        except requests.HTTPError as e:
+            # Log full response body for debugging 400 errors
+            logger.error(f"send_accident_event failed {resp.status_code}: {resp.text}")
+            return {"success": False, "event_id": None}
+        except (requests.RequestException, json.JSONDecodeError) as e:
+            logger.error(f"send_accident_event failed: {e}")
+            return {"success": False, "event_id": None}
             logger.info(f"Accident event sent (event_id={eid})")
             return {"success": True, "event_id": eid}
         except (requests.RequestException, json.JSONDecodeError) as e:

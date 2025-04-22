@@ -42,7 +42,6 @@ class CameraManager:
     def __init__(self, config: Config) -> None:
         # Parse source (int for device index or str for file path)
         src = config.get("Camera", "Source")
-        logger.error("the source is", src)
         try:
             self.source: Union[int, str] = int(src)
         except ValueError:
