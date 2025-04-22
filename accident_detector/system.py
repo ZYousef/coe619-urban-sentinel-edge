@@ -331,6 +331,10 @@ class AccidentDetectionSystem:
             logger.error(f"Unexpected status '{status_str}'")
             self.shutdown_event.wait(self.perf.reported_check_interval)
 
+        # if we were interrupted by shutdown, leave everything alone
+        if self.shutdown_event.is_set():
+            return
+
         # ---- phase 2: cooldown + re‑poll loop ----
         cooldown = self.perf.accident_cooldown
         start    = time.time()
@@ -360,6 +364,10 @@ class AccidentDetectionSystem:
                 logger.warning(f"Status changed to '{status_str}' during cooldown")
 
             self.shutdown_event.wait(self.perf.reported_check_interval)
+
+        # if we were interrupted by shutdown, leave everything alone
+        if self.shutdown_event.is_set():
+            return
 
         # ---- phase 3: cooldown elapsed → auto‑resolve remotely & locally ----
         # 1) tell backend we're resolved
