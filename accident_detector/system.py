@@ -64,6 +64,12 @@ class AccidentDetectionSystem:
 
         # Core components
         self.state = SystemState(self.config.get("System", "StateFile"))
+        # if we already have a node_id saved, reuse it
+        if saved := self.state.node_id:
+            self.config.set("Node", "ID", saved)
+            logger.info(f"Reusing saved node_id={saved}; skipping registration")
+        # otherwise registration will happen in start()
+        
         self.api_client = APIClient(self.config, debug=self.debug)
         self.model_manager = ModelManager(self.config)
         self.image_processor = ImageProcessor(self.config)
@@ -96,28 +102,43 @@ class AccidentDetectionSystem:
         return self.api_client.register_node(self.get_node_info())
 
     def start(self) -> bool:
-        """
-        Downloads model, registers node, and starts all worker threads.
-        """
         logger.info("Starting AccidentDetectionSystem")
         if not self.model_manager.download_model():
             logger.error("Model download failed")
             return False
 
-        if not (self.register_node() or self.debug):
-            logger.error("Node registration failed")
-            return False
+        if not self.state.node_id:
+            # first run: register
+            if not (rid := self.api_client.register_node(self.get_node_info())) and not self.debug:
+                logger.error("Node registration failed")
+                return False
+            # capture the newly‑assigned ID
+            assigned = self.config.get("Node", "ID")
+            self.state.mark_node_id(assigned)
+        else:
+            # already in config & state
+            logger.debug("Node registration skipped (node_id already set)")
 
-        # Launch threads
+
+        # launch core loops
         for name, target in (
-            ("video", self._video_loop),
+            ("video",      self._video_loop),
             ("processing", self._processing_loop),
-            ("heartbeat", self._heartbeat_loop),
-            ("monitor", self._monitor_loop)
+            ("heartbeat",  self._heartbeat_loop),
+            ("monitor",    self._monitor_loop)
         ):
             self._start_thread(name, target)
 
         logger.info("All threads started")
+
+        # resume any in-flight event 
+        eid = self.state.last_event_id
+        if eid and (self.state.is_unresolved() or
+                    self.state.is_in_cooldown(self.perf.accident_cooldown)):
+            logger.info(f"Resuming monitor for previous event {eid}")
+            # pool it so it's not part of self.threads
+            self.thread_pool.submit(self._poll_event_status, eid)
+
         return True
 
     def run(self) -> None:
@@ -274,37 +295,68 @@ class AccidentDetectionSystem:
 
     def _poll_event_status(self, event_id: str) -> None:
         """
-        Polls the API for event status and handles transitions.
+        Polls the API for event status and handles transitions,
+        including ongoing polling during the post‑validation cooldown.
         """
-        start_validated: Optional[float] = None
+        # PHASE 1: Wait for the first transition out of REPORTED
         while not self.shutdown_event.is_set():
             status_str = self.api_client.check_accident_status(event_id)
-            try:
-                status = Status(status_str)
-            except ValueError:
-                status = Status.UNKNOWN
+            logger.info(f"Event {event_id} status: {status_str}")
 
-            logger.info(f"Event {event_id} status: {status.value}")
-
-            if status == Status.REPORTED:
+            if status_str == Status.REPORTED.value:
+                # Still waiting to be validated/invalidated/resolved
                 self.shutdown_event.wait(self.perf.reported_check_interval)
                 continue
-            if status == Status.VALIDATED:
-                self.state.mark_validated()
-                # now block here while state.is_in_cooldown remains True
-                while self.state.is_in_cooldown(self.perf.accident_cooldown):
-                    self.shutdown_event.wait(min(60, self.perf.accident_cooldown))
-                # as soon as that returns False, we know the cooldown elapsed
-                self.api_client.update_node_status("online")
-                self.state.clear_unresolved()
-                break
-            if status == Status.INVALID:
+
+            if status_str == Status.INVALID.value:
                 self.state.mark_invalid()
+                return
+
+            if status_str == Status.VALIDATED.value:
+                self.state.mark_validated()
                 break
 
-            # Unknown or error, retry
+            if status_str == Status.RESOLVED.value:
+                self.state.mark_resolved()
+                break
+
+            # Unexpected or unknown
             logger.error(f"Unexpected status '{status_str}'")
             self.shutdown_event.wait(self.perf.reported_check_interval)
 
-        if self.shutdown_event.is_set():
-            self.state.clear_unresolved()
+        # PHASE 2: Cooldown window with live re‑polling
+        cooldown = self.perf.accident_cooldown
+        start_time = time.time()
+        while not self.shutdown_event.is_set():
+            elapsed = time.time() - start_time
+            if elapsed >= cooldown:
+                # Done waiting
+                break
+
+            status_str = self.api_client.check_accident_status(event_id)
+            logger.info(f"[Cooldown] Event {event_id} status: {status_str}")
+
+            if status_str == Status.INVALID.value:
+                # Invalidated during cooldown → resolve immediately
+                self.state.mark_invalid()
+                return
+
+            if status_str == Status.RESOLVED.value:
+                # Already resolved by external system → clear and exit
+                self.state.mark_resolved()
+                self.state.clear_unresolved()
+                return
+
+            if status_str != Status.VALIDATED.value:
+                # Flipped back to reported or unknown → bail out
+                logger.warning(f"Status changed to '{status_str}' during cooldown")
+                self.state.clear_unresolved()
+                return
+
+            # Still in cooldown & still validated
+            self.shutdown_event.wait(self.perf.reported_check_interval)
+
+        # PHASE 3: Cooldown complete without invalidation → auto‑resolve
+        logger.info("Post‑validation cooldown complete; setting node status to online.")
+        self.api_client.update_node_status("online")
+        self.state.clear_unresolved()

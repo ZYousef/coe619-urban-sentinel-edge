@@ -18,6 +18,7 @@ class Status(Enum):
     REPORTED = "reported"
     VALIDATED = "validated"
     INVALID = "invalid"
+    RESOLVED = "resolved"
     UNKNOWN = "unknown"
 
 class SystemState:
@@ -35,6 +36,7 @@ class SystemState:
         self._lock = threading.Lock()
 
         # Default state
+        self.node_id: Optional[str] = None
         self.last_event_id: Optional[str] = None
         self.event_status: Status = Status.UNKNOWN
         self.last_timestamp: float = 0.0
@@ -51,12 +53,14 @@ class SystemState:
             with open(self.filepath, 'rb') as f:
                 data = pickle.load(f)
             with self._lock:
+                self.node_id        = data.get('node_id')
                 self.last_event_id = data.get('last_event_id')
                 self.event_status = Status(data.get('event_status', Status.UNKNOWN.value))
                 self.last_timestamp = data.get('last_timestamp', 0.0)
                 self.unresolved = data.get('unresolved', False)
                 logger.info(
                 f"Loaded state from {self.filepath}: "
+                f"node_id={self.node_id}, "
                 f"last_event_id={self.last_event_id}, "
                 f"unresolved={self.unresolved}, "
                 f"last_timestamp={self.last_timestamp}"
@@ -70,6 +74,7 @@ class SystemState:
             os.makedirs(os.path.dirname(self.filepath) or '.', exist_ok=True)
             with open(self.filepath, 'wb') as f:
                 data = {
+                    'node_id':        self.node_id,
                     'last_event_id': self.last_event_id,
                     'event_status': self.event_status.value,
                     'last_timestamp': self.last_timestamp,
@@ -79,7 +84,14 @@ class SystemState:
             logger.debug(f"State saved to {self.filepath}")
         except Exception as e:
             logger.error(f"Failed to save state: {e}", exc_info=True)
-
+            
+    def mark_node_id(self, node_id: str) -> None:
+        """Persist a newly assigned node_id."""
+        with self._lock:
+            self.node_id = node_id
+        self._save()
+        logger.info(f"State updated: node_id={node_id}")
+        
     def mark_reported(self, event_id: str) -> None:
         """Marks a new accident event as reported (unresolved)."""
         with self._lock:
@@ -102,6 +114,15 @@ class SystemState:
         """Marks the current event as invalid and resolves it."""
         with self._lock:
             self.event_status = Status.INVALID
+            self.last_timestamp = time.time()
+            self.unresolved = False
+        self._save()
+        logger.info("State updated: invalid (resolved)")
+        
+    def mark_resolved(self) -> None:
+        """Marks the current event as resolved."""
+        with self._lock:
+            self.event_status = Status.RESOLVED
             self.last_timestamp = time.time()
             self.unresolved = False
         self._save()
