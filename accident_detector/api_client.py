@@ -112,14 +112,10 @@ class APIClient:
     def update_node_status(self, status: str) -> bool:
         """
         Update this node’s status (e.g. 'online', 'offline', etc.)
-        by POSTing to the edge-node endpoint with the full node info.
+        by PUTting the minimal payload to the edge-node endpoint.
         """
-        # start from your full registration payload
         payload = {
-            "node_id":   self.config.get("Node", "ID"),
-            "node_name": self.config.get("Node", "Name"),
-            "latitude":  self.config.getfloat("Node", "Latitude"),
-            "longitude": self.config.getfloat("Node", "Longitude"),
+            "node_id":     self.config.get("Node", "ID"),
             "node_status": status
         }
 
@@ -128,7 +124,8 @@ class APIClient:
             return True
 
         try:
-            resp = self.session.post(
+            # Use PUT instead of POST
+            resp = self.session.put(
                 self.register_url,
                 json=payload,
                 timeout=self.timeout
