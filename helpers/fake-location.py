@@ -37,7 +37,7 @@ def save_env(env_vars):
 
 def main():
     name, lat, lon = pick_valid_point()
-    save_env({"NODE_NAME": name, "LATITUDE": lat, "LONGITUDE": lon})
+    save_env({"NODE_NAME": name, "NODE_LATITUDE": lat, "NODE_LONGITUDE": lon})
 
 if __name__ == "__main__":
     main()

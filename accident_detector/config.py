@@ -82,19 +82,29 @@ class Config:
         load_dotenv()  # load environment variables
         self.config_file = config_file
 
-        # Initialize parser with defaults
+        # initialize parser with defaults…
         self.parser = configparser.ConfigParser()
         for section, entries in ConfigDefaults().defaults.items():
             self.parser[section] = entries.copy()
 
-        # Overlay from config file if present
+        # overlay from any existing config.ini
         if os.path.exists(self.config_file):
-            try:
-                self.parser.read(self.config_file)
-            except Exception as e:
-                raise RuntimeError(f"Failed to read config file {self.config_file}: {e}")
+            self.parser.read(self.config_file)
 
-        # Validate numeric ranges
+        # now merge in NODE_* env vars into [Node] via our existing setter
+        env_to_key = {
+            "NODE_NAME":      "Name",
+            "NODE_ID":        "ID",
+            "NODE_LATITUDE":  "Latitude",
+            "NODE_LONGITUDE": "Longitude",
+        }
+        for env_var, node_key in env_to_key.items():
+            val = os.getenv(env_var)
+            if val is not None:
+                # set() writes it out immediately
+                self.set("Node", node_key, val)
+
+        # finally validate ranges
         self._validate_ranges()
 
     def _validate_ranges(self) -> None:
