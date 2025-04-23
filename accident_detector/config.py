@@ -49,7 +49,7 @@ class ConfigDefaults:
             
         },
         "API": {
-            "BaseURL": "https://q1zx95ecqc.execute-api.me-south-1.amazonaws.com/prod/",
+            "BaseURL": "https://h6qfpbns68.execute-api.me-south-1.amazonaws.com/prod/",
             "Timeout": "10",
             "RetryAttempts": "3",
             "RetryBackoffFactor": "0.3"
@@ -69,7 +69,7 @@ class ConfigDefaults:
             "Height": "480",
             "FPS": "10",
             "WarmupFrames": "5",
-            "LoopMode": "rewind"
+            "LoopMode": "random"
         }
     })
 

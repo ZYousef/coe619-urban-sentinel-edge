@@ -77,7 +77,12 @@ class CameraManager:
                 cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.cfg.width)
                 cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.cfg.height)
                 cap.set(cv2.CAP_PROP_FPS, self.cfg.fps)
-
+                # ── If we're in RANDOM mode, jump to a random start frame better simulation ──
+                if self.cfg.loop_mode == LoopMode.RANDOM:
+                    total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+                    if total > 0:
+                        start = random.randint(0, total - 1)
+                        cap.set(cv2.CAP_PROP_POS_FRAMES, start)
                 # Warmup
                 for _ in range(self.cfg.warmup_frames):
                     if not cap.read()[0]:
