@@ -23,7 +23,8 @@ class ConfigDefaults:
         "System": {
             "DebugMode": "False",
             "HeartbeatInterval": "60",
-            "StateFile": "state.pkl"
+            "StateFile": "state.pkl",
+            "ThreadPoolSize": "4"
         },
         "Performance": {
             "FrameQueueSize": "5",
@@ -48,7 +49,7 @@ class ConfigDefaults:
             
         },
         "API": {
-            "BaseURL": "",
+            "BaseURL": "https://q1zx95ecqc.execute-api.me-south-1.amazonaws.com/prod/",
             "Timeout": "10",
             "RetryAttempts": "3",
             "RetryBackoffFactor": "0.3"
