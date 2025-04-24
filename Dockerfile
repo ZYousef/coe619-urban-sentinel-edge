@@ -1,15 +1,29 @@
-# Use an official Python runtime as a parent image
+# Use the slim Python base…
 FROM python:3.11-slim
 
+# 1) Install OS packages required to compile C/C++ Python extensions
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+      build-essential \
+      gcc \
+      g++ \
+      python3-dev \
+      libatlas-base-dev && \
+    rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
-COPY . /app
 
-RUN pip install --no-cache-dir -r requirements.txt
-# Remove requirements.txt after installation
-RUN rm -f requirements.txt
-# Ensure .env file is always available
+# 2) Copy and install Python requirements
+COPY requirements.txt .
+RUN pip install --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
 
-RUN touch .env
+# 3) Copy the rest of your application
+COPY . .
 
-# Run script on container launch
+# 4) Clean up
+RUN rm -f requirements.txt \
+    && touch .env
+
+# 5) Entrypoint: run your helper script
 CMD ["python3", "./helpers/run_scripts.py"]

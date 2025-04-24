@@ -1,6 +1,5 @@
 .venv/
 accident_detector/__pycache__/
-helpers/loop.mp4
 README.md
 .dockerignore
 .DS_Store
@@ -18,9 +17,9 @@ Dockerfile
 Dockerfile.archive
 docker-compose.yml
 *.pkl
-helpers/*.pkl
-helpers/*.mp4
 *.ini
 *.log
 .env
+Makefile
+logs/*
 

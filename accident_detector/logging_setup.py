@@ -1,37 +1,55 @@
 """
 logging_setup.py
 
-This module defines setup_logging(), which configures logging to both
-a rotating file handler and the console.
+Configures the 'accident_detector' logger with rotating file and console handlers.
 """
 
+import os
 import logging
 from logging.handlers import RotatingFileHandler
+from .config import Config
 
-def setup_logging():
+
+def setup_logging(log_file: str = None) -> None:
     """
-    Creates and returns a logger named "accident_detector" that writes
-    to 'accident_detector.log' in a rotating fashion, as well as to
-    the console.
+    Configures the 'accident_detector' logger.
+
+    - RotatingFileHandler at `log_file` (default from config or 'logs/accident_detector.log')
+    - Console StreamHandler
     """
     logger = logging.getLogger("accident_detector")
     logger.setLevel(logging.INFO)
 
-    # Clear existing handlers (in case setup is called multiple times)
-    for handler in logger.handlers[:]:
-        logger.removeHandler(handler)
+    # Determine log file path (config override possible)
+    cfg = Config()
+    if log_file is None:
+        try:
+            log_file = cfg.get("Logging", "LogFile")
+        except Exception:
+            log_file = "logs/accident_detector.log"
 
-    file_handler = RotatingFileHandler(
-        "accident_detector.log",
-        maxBytes=10485760,  # 10 MB
-        backupCount=5
+    # Ensure log directory exists
+    log_dir = os.path.dirname(log_file)
+    if log_dir and not os.path.isdir(log_dir):
+        os.makedirs(log_dir, exist_ok=True)
+
+    # Formatter with ISO 8601 timestamps
+    formatter = logging.Formatter(
+        fmt="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+        datefmt="%Y-%m-%dT%H:%M:%S%z"
     )
-    console_handler = logging.StreamHandler()
-    formatter = logging.Formatter('%(asctime)s - %(name)-20s - %(levelname)s - %(message)s')
+
+    # File handler: rotates after 10 MB, keeps 5 backups
+    file_handler = RotatingFileHandler(
+        filename=log_file,
+        maxBytes=10*1024*1024,
+        backupCount=5,
+        encoding="utf-8"
+    )
     file_handler.setFormatter(formatter)
-    console_handler.setFormatter(formatter)
-
     logger.addHandler(file_handler)
-    logger.addHandler(console_handler)
 
-    return logger
+    # Console handler
+    console_handler = logging.StreamHandler()
+    console_handler.setFormatter(formatter)
+    logger.addHandler(console_handler)
