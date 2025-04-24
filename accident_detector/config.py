@@ -36,7 +36,8 @@ class ConfigDefaults:
         },
         "Detection": {
             "AccidentConfidenceThreshold": "0.7",
-            "RequiredConsecutiveFrames": "2"
+            "RequiredConsecutiveFrames": "10",
+            "InvalidationBanSeconds": "30"
         },
         "Image": {
             "ResizeWidth": "224",

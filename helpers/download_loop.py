@@ -9,7 +9,7 @@ target_path = 'helpers/loop.mp4'
 if not os.path.exists(target_path):
     try:
         # Download the video
-        yt = YouTube('https://www.youtube.com/watch?v=992eWJp0_No')
+        yt = YouTube('https://www.youtube.com/watch?v=_yfmLXQrnEE')
         video_file = yt.streams.filter(progressive=True, file_extension='mp4').order_by('resolution').desc().first().download()
 
         # Ensure the directory exists

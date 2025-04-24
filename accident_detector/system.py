@@ -89,6 +89,9 @@ class AccidentDetectionSystem:
                 f"cooldown={self.perf.accident_cooldown}s, heartbeat={self.perf.heartbeat_interval}s"
             )
 
+        self._invalidation_ban: float = self.config.getfloat("Detection", "InvalidationBanSeconds")
+        self._ban_until: float = 0.0
+        
     def get_node_info(self) -> Dict[str, Any]:
         return {
             "node_status": "active",
@@ -242,7 +245,11 @@ class AccidentDetectionSystem:
                 frame = self.frame_queue.get(timeout=1)
             except queue.Empty:
                 continue
-
+            if time.time() < self._ban_until:
+                logger.debug(f"[ban] skipping report until {self._ban_until:.1f}")
+                self.frame_queue.task_done()
+                continue
+            
             buffer, resized = self.image_processor.compress(frame)
             pred, conf = self.model_manager.predict(resized)
             logger.debug(f"Prediction={pred} conf={conf:.2f}")
@@ -311,7 +318,18 @@ class AccidentDetectionSystem:
                 continue
 
             if status_str == Status.INVALID.value:
-                # immediate resolution
+                # start ban window
+                now = time.time()
+                self._ban_until = now + self._invalidation_ban
+                logger.info(
+                    f"[ban] invalid event reports banned for "
+                    f"{self._invalidation_ban:.0f}s (until {self._ban_until:.0f})"
+                )
+ 
+                # flush any already-queued frames
+                with self.frame_queue.mutex:
+                    self.frame_queue.queue.clear()
+ 
                 self.state.mark_invalid()
                 self.api_client.update_node_status("online")
                 return
@@ -350,6 +368,18 @@ class AccidentDetectionSystem:
             logger.info(f"[Cooldown] Event {event_id} status: {status_str}")
 
             if status_str == Status.INVALID.value:
+                # start ban window
+                now = time.time()
+                self._ban_until = now + self._invalidation_ban
+                logger.info(
+                    f"[ban] invalid event reports banned for "
+                    f"{self._invalidation_ban:.0f}s (until {self._ban_until:.0f})"
+                )
+ 
+                # flush any already-queued frames
+                with self.frame_queue.mutex:
+                    self.frame_queue.queue.clear()
+ 
                 self.state.mark_invalid()
                 self.api_client.update_node_status("online")
                 return
